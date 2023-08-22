@@ -143,7 +143,63 @@ bool SynthRenderer::initGL()
 
     initBackgroundObjects();
 
+    //Init framebeuffer for rendering scene to
+    glGenFramebuffers(1, &framebuffer_object);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_object);
+
+    //Create the texture for rendering to
+    glGenTextures(1, &generated_image_texture_object);
+    glBindTexture(GL_TEXTURE_2D, generated_image_texture_object);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, generate_image_width, generate_image_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    //Attach the texture to the framebuffer
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, generated_image_texture_object, 0);
+
+    //Create a renderbuffer object for depth and stencil attachment
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, generate_image_width, generate_image_height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);    
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    {
+        throw runtime_error("Framebuffer is not complete!");
+    };
+
+
+    //Init framebuffers for rendering semantic segmentation masks
+    glGenFramebuffers(1, &semantic_segmentation_framebuffer_object);
+    glBindFramebuffer(GL_FRAMEBUFFER, semantic_segmentation_framebuffer_object);
+
+    //Create the texture
+    glGenTextures(1, &semantic_segmentation_texture_object);
+    glBindTexture(GL_TEXTURE_2D, semantic_segmentation_texture_object);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, generate_image_width, generate_image_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    //Attach the texture to the framebuffer
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, semantic_segmentation_texture_object, 0);
+
+    //Create a renderbuffer object for depth and stencil attachment
+    glGenRenderbuffers(1, &semantic_segmentation_rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, semantic_segmentation_rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, generate_image_width, generate_image_height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, semantic_segmentation_rbo);    
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    {
+        throw runtime_error("Segments framebuffer is not complete!"); 
+    };
+
     return true;
+}
+
+void SynthRenderer::cleanupGL()
+{
+    glDeleteFramebuffers(1, &framebuffer_object);
 }
 
 
@@ -196,7 +252,10 @@ void SynthRenderer::drawModels(
         uint8_t class_id_med = (name_object.second.semantic_class_id >> 8) & 0xFF;
         uint8_t class_id_hi = (name_object.second.semantic_class_id >> 16) & 0xFF;        
         glm::vec3 class_id_vec(class_id_lo / 255.0f, class_id_med / 255.0f, class_id_hi / 255.0f);
-        shader.setVec3("class_id_vec", class_id_vec);
+
+clog << "Setting draw color: " << class_id_vec.x << " " << class_id_vec.y << " " << class_id_vec.z << endl;
+
+        shader.setVec3("draw_color", class_id_vec);
 
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
@@ -261,36 +320,10 @@ SyntheticResult SynthRenderer::renderImage(
 {
     SyntheticResult synthetic_result;
 
-    //Create and bind the framebuffer for synthetic image generation
-    unsigned int framebuffer_object;
-    glGenFramebuffers(1, &framebuffer_object);
+
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_object);
-
-    //Create the texture
-    GLuint generated_image_texture_object;
-    glGenTextures(1, &generated_image_texture_object);
-    glBindTexture(GL_TEXTURE_2D, generated_image_texture_object);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, generate_image_width, generate_image_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    //Attach the texture to the framebuffer
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, generated_image_texture_object, 0);
-
-    //Create a renderbuffer object for depth and stencil attachment
-    GLuint rbo;
-    glGenRenderbuffers(1, &rbo);
-    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, generate_image_width, generate_image_height);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);    
-
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-    {
-        throw runtime_error("Framebuffer is not complete!");
-    };
-
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     drawBackground(background_image_index);
-
     //Initialize the camera
     Camera camera(camera_position, camera_target, camera_up);
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)generate_image_width / (float)generate_image_height, 0.1f, 100.0f);
@@ -312,65 +345,46 @@ SyntheticResult SynthRenderer::renderImage(
     model_shader.value().setFloat("searchlight_cone_angle_sin", sin(search_light_angle));
 
     drawModels(models_to_attributes, model_shader.value());  //Render synthetic image
-    
-    if (generate_semantic_segmentation)
-    {
-        //Create and bind the framebuffer for synthetic image generation
-        unsigned int segments_framebuffer_object;
-        glGenFramebuffers(1, &segments_framebuffer_object);
-        glBindFramebuffer(GL_FRAMEBUFFER, segments_framebuffer_object);
-
-        //Create the texture
-        GLuint generated_segments_image_texture_object;
-        glGenTextures(1, &generated_segments_image_texture_object);
-        glBindTexture(GL_TEXTURE_2D, generated_segments_image_texture_object);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, generate_image_width, generate_image_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        //Attach the texture to the framebuffer
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, generated_segments_image_texture_object, 0);
-
-        //Create a renderbuffer object for depth and stencil attachment
-        GLuint rbo;
-        glGenRenderbuffers(1, &rbo);
-        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, generate_image_width, generate_image_height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);    
-
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        {
-            throw runtime_error("Segments framebuffer is not complete!"); 
-        };
-
-        semantic_segmentation_shader.value().use();
-        semantic_segmentation_shader.value().setMat4("view", view);
-        semantic_segmentation_shader.value().setMat4("projection", projection);
-
-        drawModels(models_to_attributes, semantic_segmentation_shader.value());  //Render synthetic image
-        
-        //We will interpret RGB colors of the pixels as 24-bit integer (semantic index)
-        auto pixels_buff_ptr = make_unique<GLubyte[]>(generate_image_width * generate_image_height * 3);
-        glReadPixels(0, 0, generate_image_width, generate_image_height, GL_RGB, GL_UNSIGNED_BYTE, pixels_buff_ptr.get());
-
-        auto semantic_image = Image(std::move(pixels_buff_ptr), generate_image_width, generate_image_height, 3);
-        synthetic_result.semantic_segmentation = std::move(semantic_image);         
-
-        //Bind default framebuffer and delete the segmentation framebuffer object
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteFramebuffers(1, &segments_framebuffer_object);
-    }
-
     //Read the pixels from the framebuffer, so we can return and access them
     auto pixels_buff_ptr = make_unique<GLubyte[]>(generate_image_width * generate_image_height * 3);
     glReadPixels(0, 0, generate_image_width, generate_image_height, GL_RGB, GL_UNSIGNED_BYTE, pixels_buff_ptr.get());
 
     //We are done with the framebuffer, bind default framebuffer now
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glDeleteFramebuffers(1, &framebuffer_object);
 
     auto renered_image = Image(std::move(pixels_buff_ptr), generate_image_width, generate_image_height, 3);
     synthetic_result.image = std::move(renered_image);         
+    
+    if (generate_semantic_segmentation)
+    {
+
+        semantic_segmentation_shader.value().use();
+        semantic_segmentation_shader.value().setMat4("view", view);
+        semantic_segmentation_shader.value().setMat4("projection", projection);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, semantic_segmentation_framebuffer_object);
+        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        drawModels(models_to_attributes, semantic_segmentation_shader.value());  //Render synthetic image
+        //We will interpret RGB colors of the pixels as 24-bit integer (semantic index)
+        auto pixels_buff_ptr = make_unique<GLubyte[]>(generate_image_width * generate_image_height * 3);
+        glReadPixels(0, 0, generate_image_width, generate_image_height, GL_RGB, GL_UNSIGNED_BYTE, pixels_buff_ptr.get());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+bool has_non_zero = false;
+for (int i = 0; i < generate_image_width * generate_image_height * 3; i += 3)
+{
+    if (pixels_buff_ptr[i] != 0 || pixels_buff_ptr[i + 1] != 0 || pixels_buff_ptr[i + 2] != 0)
+    {
+        has_non_zero = true;
+        break;
+    }
+}
+clog << "Segmentation has non zero: " << has_non_zero << endl;
+
+        auto semantic_image = Image(std::move(pixels_buff_ptr), generate_image_width, generate_image_height, 3);
+        synthetic_result.semantic_segmentation = std::move(semantic_image);         
+    }
 
     //Compute the bounding rects
     glm::mat4 projection_view = projection * view;

@@ -5,8 +5,13 @@
 #include <boost/python/object.hpp>
 #include <boost/python/tuple.hpp>
 #include <boost/python/numpy.hpp>
+#include <cstdlib>
 
 #include "SynthRenderer.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 
 namespace bp = boost::python;
 namespace np = boost::python::numpy;
@@ -133,21 +138,13 @@ public:
             int semantic_label;
 
             extractValueFromDict(object_properties_dict, SCALING_KEY, scaling);
-clog << "[PySynthRendererWrapper] scaling: " << scaling << endl;
             extractValueFromDict(object_properties_dict, XKEY, x);
-clog << "[PySynthRendererWrapper] x: " << x << endl;            
             extractValueFromDict(object_properties_dict, YKEY, y);
-clog << "[PySynthRendererWrapper] y: " << y << endl;           
             extractValueFromDict(object_properties_dict, ZKEY, z);
-clog << "[PySynthRendererWrapper] z: " << z << endl;
             extractValueFromDict(object_properties_dict, YAWKEY, yaw);
-clog << "[PySynthRendererWrapper] rx: " << yaw << endl;            
             extractValueFromDict(object_properties_dict, PITCHKEY, pitch);
-clog << "[PySynthRendererWrapper] ry: " << pitch << endl;            
             extractValueFromDict(object_properties_dict, ROLLKEY, roll);
-clog << "[PySynthRendererWrapper] rz: " << roll << endl;            
             extractValueFromDictOrDefault(object_properties_dict, SEMANTIC_CLASS_KEY, semantic_label, 0);
-clog << "[PySynthRendererWrapper] semantic_label: " << semantic_label << endl;
 
             models_attributes.push_back({model_name, ObjectAttributes(scaling, x, y, z, yaw, pitch, roll, semantic_label)});
         }
@@ -209,21 +206,29 @@ clog << "[PySynthRendererWrapper] semantic_label: " << semantic_label << endl;
             search_light_angle,
             render_semantic_labels);
 
+stbi_write_jpg("rendered.jpg", rendering_results.image.width, rendering_results.image.height, 3, rendering_results.image.data.get(), 100);
+
         //Copy image data into numpy array
         bp::tuple image_shape = bp::make_tuple(
                 rendering_results.image.height,
                 rendering_results.image.width, 
                 3);
         np::ndarray image_result = np::zeros(image_shape, np::dtype::get_builtin<unsigned char>());
-        std::copy(
-                rendering_results.image.data.get(),
-                rendering_results.image.data.get() + rendering_results.image.width * rendering_results.image.height * 3,
-                image_result.get_data());
+//        std::copy(
+//                rendering_results.image.data.get(),
+//                rendering_results.image.data.get() + rendering_results.image.width * rendering_results.image.height * 3,
+//                image_result.get_data());
+for (int i = 0; i < rendering_results.image.width * rendering_results.image.height * 3; ++i)
+{
+    image_result.get_data()[i] = rendering_results.image.data.get()[i];
+}
 
         bp::object semantic_segmentation_result_object;
         //Copy semantic segmentation data into numpy array (if available)
         if (rendering_results.semantic_segmentation.has_value())
         {
+
+/*            
             bp::tuple segmentation_shape = bp::make_tuple(
                     rendering_results.image.height,
                     rendering_results.image.width);
@@ -236,6 +241,19 @@ clog << "[PySynthRendererWrapper] semantic_label: " << semantic_label << endl;
                 semantic_segmentation_result.get_data()[i] = semantic_label;
             }
             semantic_segmentation_result_object = semantic_segmentation_result;
+*/            
+        np::ndarray semantic_segmentation_result = np::zeros(image_shape, np::dtype::get_builtin<unsigned char>());
+//        std::copy(
+//                rendering_results.image.data.get(),
+//                rendering_results.image.data.get() + rendering_results.image.width * rendering_results.image.height * 3,
+//                image_result.get_data());
+for (int i = 0; i < rendering_results.image.width * rendering_results.image.height * 3; ++i)
+{
+    semantic_segmentation_result.get_data()[i] = rendering_results.semantic_segmentation.value().data.get()[i];
+}
+semantic_segmentation_result_object = semantic_segmentation_result;
+
+
         }
 
         //Extract objects bounding boxes and convert them into python list

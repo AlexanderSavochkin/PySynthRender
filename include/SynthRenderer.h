@@ -130,9 +130,21 @@ class SynthRenderer
        
         GLuint background_VAO, background_VBO;
 
+        //Frame buffer objects for synthetic image generation
+        unsigned int framebuffer_object;
+        GLuint generated_image_texture_object;
+        GLuint rbo;
+
+        //Frame buffer objects for semantic segmentation generation
+        unsigned int semantic_segmentation_framebuffer_object;
+        GLuint semantic_segmentation_texture_object;
+        GLuint semantic_segmentation_rbo;
+
+
         void initBackgroundObjects();
 
         bool initGL();
+        void cleanupGL();
 
         void drawBackground(int background_index);
 
